@@ -1,0 +1,15 @@
+services:
+  turismo-backend:
+    build:
+      context: ./backend
+    container_name: turismo-backend
+    restart: unless-stopped
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    networks:
+      - proxy_network
+
+networks:
+  proxy_network:
+    external: true
+    name: proxy_network
