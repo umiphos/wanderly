@@ -4,8 +4,8 @@ services:
       context: ./
     container_name: turismo-backend
     restart: unless-stopped
-    environment:
-      CORS_ORIGINS: ${CORS_ORIGINS}
+    env_file:
+      - .env
     networks:
       proxy_network:
         aliases:
