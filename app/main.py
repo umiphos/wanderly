@@ -41,6 +41,52 @@ class ContentUpdate(BaseModel):
     active: Optional[bool] = None
     description: Optional[str] = None
 
+
+def decode_base64_url(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+def verify_token(token: str) -> dict:
+    if not SECRET_KEY:
+        raise HTTPException(500, "SECRET_KEY no configurado")
+
+    try:
+        encoded_payload, encoded_signature = token.split(".", 1)
+    except ValueError:
+        raise HTTPException(401, "Token inválido")
+
+    expected_signature = hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    if not hmac.compare_digest(encode_base64_url(expected_signature), encoded_signature):
+        raise HTTPException(401, "Token inválido")
+
+    try:
+        payload = json.loads(decode_base64_url(encoded_payload))
+    except Exception:
+        raise HTTPException(401, "Token inválido")
+
+    if payload.get("exp", 0) < int(time.time()):
+        raise HTTPException(401, "Sesión expirada")
+
+    return payload
+
+def require_admin(authorization: str = Header(default="")) -> dict:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(401, "No autorizado")
+
+    payload = verify_token(token)
+    if payload.get("sub") != ADMIN_EMAIL:
+        raise HTTPException(401, "No autorizado")
+
+    return payload
+
+
+
 @app.get("/api/health")
 def health(): return {"status": "ok"}
 
@@ -59,10 +105,18 @@ def get_content(slug: str):
     return item
 
 @app.patch("/api/admin/content/{slug}")
-def update_content(slug: str, payload: ContentUpdate):
+def update_content(
+    slug: str,
+    payload: ContentUpdate,
+    admin: dict = Depends(require_admin),
+):
     item = next((x for x in CONTENT if x["slug"] == slug), None)
-    if not item: raise HTTPException(404, "Contenido no encontrado")
-    for key, value in payload.model_dump(exclude_unset=True).items(): item[key] = value
+    if not item:
+        raise HTTPException(404, "Contenido no encontrado")
+
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        item[key] = value
+
     return item
 
 
