@@ -1,9 +1,22 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from .seed import CONTENT
 import os
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
+from typing import Optional
+
+
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+TOKEN_TTL_SECONDS = int(os.getenv("TOKEN_TTL_SECONDS", "86400"))
 
 CORS_ORIGINS = [
     origin.strip()
@@ -19,6 +32,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class AdminLogin(BaseModel):
+    email: str
+    password: str
 class ContentUpdate(BaseModel):
     name: Optional[str] = None
     active: Optional[bool] = None
@@ -47,3 +64,50 @@ def update_content(slug: str, payload: ContentUpdate):
     if not item: raise HTTPException(404, "Contenido no encontrado")
     for key, value in payload.model_dump(exclude_unset=True).items(): item[key] = value
     return item
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def encode_base64_url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def decode_base64_url(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def sign_token(payload: dict) -> str:
+    if not SECRET_KEY:
+        raise HTTPException(500, "SECRET_KEY no configurado")
+
+    encoded_payload = encode_base64_url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    return f"{encoded_payload}.{encode_base64_url(signature)}"
+
+@app.post("/api/admin/login")
+def admin_login(payload: AdminLogin):
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
+        raise HTTPException(500, "Credenciales admin no configuradas")
+
+    valid_email = hmac.compare_digest(payload.email, ADMIN_EMAIL)
+    valid_password = hmac.compare_digest(hash_password(payload.password), ADMIN_PASSWORD_HASH)
+
+    if not valid_email or not valid_password:
+        raise HTTPException(401, "Credenciales inválidas")
+
+    expires_at = int(time.time()) + TOKEN_TTL_SECONDS
+    token = sign_token({"sub": ADMIN_EMAIL, "exp": expires_at})
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_at": expires_at,
+    }
