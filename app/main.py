@@ -92,7 +92,7 @@ def health(): return {"status": "ok"}
 
 @app.get("/api/content")
 def list_content(type: Optional[str] = None, municipality: Optional[str] = None, q: Optional[str] = None):
-    rows = [x.copy() for x in CONTENT if x["active"]]
+    rows = [x.copy() for x in CONTENT]
     if type: rows = [x for x in rows if x["type"] in type.split(",")]
     if municipality: rows = [x for x in rows if x["municipality"] == municipality]
     if q: rows = [x for x in rows if q.lower() in (x["name"] + " " + x["description"]).lower()]
