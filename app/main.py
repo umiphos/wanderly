@@ -5,14 +5,12 @@ import json
 import os
 import sqlite3
 import time
-from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .seed import CONTENT
-
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
@@ -21,9 +19,7 @@ TOKEN_TTL_SECONDS = int(os.getenv("TOKEN_TTL_SECONDS", "86400"))
 CONTENT_DB_PATH = os.getenv("CONTENT_DB_PATH", "/data/content.db")
 
 CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
+    origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if origin.strip()
 ]
 
 app = FastAPI(title="Colima en el mapa API", version="0.1.0")
@@ -42,9 +38,9 @@ class AdminLogin(BaseModel):
 
 
 class ContentUpdate(BaseModel):
-    name: Optional[str] = None
-    active: Optional[bool] = None
-    description: Optional[str] = None
+    name: str | None = None
+    active: bool | None = None
+    description: str | None = None
 
 
 def get_db_connection():
@@ -187,8 +183,8 @@ def verify_token(token: str) -> dict:
 
     try:
         encoded_payload, encoded_signature = token.split(".", 1)
-    except ValueError:
-        raise HTTPException(401, "Token invalido")
+    except ValueError as e:
+        raise HTTPException(401, "Token invalido") from e
 
     expected_signature = hmac.new(
         SECRET_KEY.encode("utf-8"),
@@ -201,8 +197,8 @@ def verify_token(token: str) -> dict:
 
     try:
         payload = json.loads(decode_base64_url(encoded_payload))
-    except Exception:
-        raise HTTPException(401, "Token invalido")
+    except Exception as e:
+        raise HTTPException(401, "Token invalido") from e
 
     if payload.get("exp", 0) < int(time.time()):
         raise HTTPException(401, "Sesion expirada")
@@ -228,7 +224,7 @@ def health():
 
 
 @app.get("/api/content")
-def list_content(type: Optional[str] = None, municipality: Optional[str] = None, q: Optional[str] = None):
+def list_content(type: str | None = None, municipality: str | None = None, q: str | None = None):
     rows = list_content_rows()
     if type:
         rows = [x for x in rows if x["type"] in type.split(",")]
