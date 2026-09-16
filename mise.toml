@@ -1,2 +1,22 @@
 [tools]
 python = "3.13"
+
+[tasks.install]
+description = "Instala dependencias de desarrollo"
+run = "python -m pip install -r requirements-dev.txt"
+
+[tasks.format]
+description = "Ordena imports y aplica formato"
+run = "ruff check --fix . && ruff format ."
+
+[tasks.format-check]
+description = "Comprueba imports y formato sin modificar archivos"
+run = "ruff check . && ruff format --check ."
+
+[tasks.lint]
+description = "Ejecuta las reglas de calidad de Python"
+run = "ruff check ."
+
+[tasks.pre-commit-install]
+description = "Activa las validaciones antes de cada commit"
+run = "pre-commit install"
