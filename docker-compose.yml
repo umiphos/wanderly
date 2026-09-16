@@ -6,10 +6,15 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - turismo_data:/data
     networks:
       proxy_network:
         aliases:
           - turismo-backend
+
+volumes:
+  turismo_data:
 
 networks:
   proxy_network:
