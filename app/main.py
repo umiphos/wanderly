@@ -1,9 +1,3 @@
-from fastapi import FastAPI, HTTPException, Depends, FastAPI, Header, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-from .seed import CONTENT
-import os
 import base64
 import hashlib
 import hmac
@@ -11,6 +5,12 @@ import json
 import os
 import time
 from typing import Optional
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from .seed import CONTENT
 
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
@@ -36,15 +36,40 @@ app.add_middleware(
 class AdminLogin(BaseModel):
     email: str
     password: str
+
+
 class ContentUpdate(BaseModel):
     name: Optional[str] = None
     active: Optional[bool] = None
     description: Optional[str] = None
 
 
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def encode_base64_url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
 def decode_base64_url(data: str) -> bytes:
     padding = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode(data + padding)
+
+
+def sign_token(payload: dict) -> str:
+    if not SECRET_KEY:
+        raise HTTPException(500, "SECRET_KEY no configurado")
+
+    encoded_payload = encode_base64_url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    return f"{encoded_payload}.{encode_base64_url(signature)}"
+
 
 def verify_token(token: str) -> dict:
     if not SECRET_KEY:
@@ -53,7 +78,7 @@ def verify_token(token: str) -> dict:
     try:
         encoded_payload, encoded_signature = token.split(".", 1)
     except ValueError:
-        raise HTTPException(401, "Token inválido")
+        raise HTTPException(401, "Token invÃ¡lido")
 
     expected_signature = hmac.new(
         SECRET_KEY.encode("utf-8"),
@@ -62,17 +87,18 @@ def verify_token(token: str) -> dict:
     ).digest()
 
     if not hmac.compare_digest(encode_base64_url(expected_signature), encoded_signature):
-        raise HTTPException(401, "Token inválido")
+        raise HTTPException(401, "Token invÃ¡lido")
 
     try:
         payload = json.loads(decode_base64_url(encoded_payload))
     except Exception:
-        raise HTTPException(401, "Token inválido")
+        raise HTTPException(401, "Token invÃ¡lido")
 
     if payload.get("exp", 0) < int(time.time()):
-        raise HTTPException(401, "Sesión expirada")
+        raise HTTPException(401, "SesiÃ³n expirada")
 
     return payload
+
 
 def require_admin(authorization: str = Header(default="")) -> dict:
     scheme, _, token = authorization.partition(" ")
@@ -84,7 +110,6 @@ def require_admin(authorization: str = Header(default="")) -> dict:
         raise HTTPException(401, "No autorizado")
 
     return payload
-
 
 
 @app.get("/api/health")
@@ -120,32 +145,6 @@ def update_content(
     return item
 
 
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
-def encode_base64_url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
-
-
-def decode_base64_url(data: str) -> bytes:
-    padding = "=" * (-len(data) % 4)
-    return base64.urlsafe_b64decode(data + padding)
-
-
-def sign_token(payload: dict) -> str:
-    if not SECRET_KEY:
-        raise HTTPException(500, "SECRET_KEY no configurado")
-
-    encoded_payload = encode_base64_url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    signature = hmac.new(
-        SECRET_KEY.encode("utf-8"),
-        encoded_payload.encode("utf-8"),
-        hashlib.sha256,
-    ).digest()
-
-    return f"{encoded_payload}.{encode_base64_url(signature)}"
-
 @app.post("/api/admin/login")
 def admin_login(payload: AdminLogin):
     if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
@@ -155,7 +154,7 @@ def admin_login(payload: AdminLogin):
     valid_password = hmac.compare_digest(hash_password(payload.password), ADMIN_PASSWORD_HASH)
 
     if not valid_email or not valid_password:
-        raise HTTPException(401, "Credenciales inválidas")
+        raise HTTPException(401, "Credenciales invÃ¡lidas")
 
     expires_at = int(time.time()) + TOKEN_TTL_SECONDS
     token = sign_token({"sub": ADMIN_EMAIL, "exp": expires_at})
@@ -165,3 +164,8 @@ def admin_login(payload: AdminLogin):
         "token_type": "bearer",
         "expires_at": expires_at,
     }
+
+
+@app.get("/api/admin/me")
+def admin_me(admin: dict = Depends(require_admin)):
+    return {"email": admin["sub"]}
